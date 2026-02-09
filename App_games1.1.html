@@ -1,0 +1,259 @@
+﻿<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<title>Computer Factory Tycoon</title>
+<style>
+body{margin:0;background:#000;color:#eaeaf0;font-family:Arial}
+#ui{display:flex;gap:10px;padding:10px;background:#151923;flex-wrap:wrap}
+.panel{background:#1e2433;padding:8px 12px;border-radius:8px}
+button,select{background:#4c7dff;border:0;border-radius:6px;color:white;padding:6px 10px;cursor:pointer}
+button:disabled{opacity:.4}
+canvas{display:block;margin:0 auto;cursor:pointer}
+</style>
+</head>
+<body>
+
+
+<div id="ui">
+  <div class="panel">💰 Pengar: <span id="money">50</span></div>
+  <div class="panel">🖥️ PC: <span id="computers">0</span></div>
+  <div class="panel">♻️ Rebirths: <span id="rebirths">0</span></div>
+
+
+  <select id="pcType">
+    <option value="basic">Basic PC</option>
+    <option value="gaming">Gaming PC</option>
+    <option value="super">Super PC</option>
+  </select>
+
+
+  <button id="buy">Köp</button>
+  <button id="sellAll">Sälj alla</button>
+  <button id="upgrade">Uppgradera</button>
+  <button id="delete">🗑️ Radera PC</button>
+  <button id="rebirth">♻️ Rebirth (5 000 000)</button>
+</div>
+
+
+<canvas id="game" width="900" height="450"></canvas>
+
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+
+/* ===== SAVE / LOAD ===== */
+const SAVE_KEY = "computer_factory_tycoon_save";
+
+
+function saveGame(){
+  const data = {
+    money, rebirths, inventory, machineCosts,
+    machines: machines.map(m => ({
+      x:m.x,y:m.y,type:m.type,
+      timer:m.timer,level:m.level,
+      upgradeCost:m.upgradeCost
+    }))
+  };
+  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+}
+
+
+function loadGame(){
+  const raw = localStorage.getItem(SAVE_KEY);
+  if(!raw) return;
+  try{
+    const d = JSON.parse(raw);
+    money=d.money??money;
+    rebirths=d.rebirths??0;
+    inventory=d.inventory??inventory;
+    machineCosts=d.machineCosts??machineCosts;
+    machines=[];
+    d.machines?.forEach(m=>{
+      const mc=new Machine(m.x,m.y,m.type);
+      mc.timer=m.timer; mc.level=m.level; mc.upgradeCost=m.upgradeCost;
+      machines.push(mc);
+    });
+  }catch{}
+}
+
+
+/* ===== PC IMAGE ===== */
+const pcImage=new Image();
+pcImage.src="data:image/svg+xml;utf8,"+encodeURIComponent(`
+<svg xmlns='http://www.w3.org/2000/svg' width='64' height='64'>
+<rect x='4' y='8' width='56' height='36' rx='4' fill='#3a8cff'/>
+<rect x='8' y='12' width='48' height='28' rx='2' fill='#00ffee'/>
+<rect x='28' y='46' width='8' height='8' fill='#aaa'/>
+<rect x='20' y='54' width='24' height='4' fill='#777'/>
+</svg>`);
+
+
+/* ===== DATA ===== */
+let money=50, machines=[], rebirths=0;
+let inventory={basic:0,gaming:0,super:0};
+const productionAmount={basic:1,gaming:5,super:10};
+const baseSpeed={basic:2,gaming:4,super:6};
+let machineCosts={basic:30,gaming:120,super:240};
+const sellPrices={basic:10,gaming:20,super:80};
+const baseUpgradeCosts={basic:100,gaming:500,super:1000};
+
+
+/* ===== UI ===== */
+const uiMoney=moneyEl=document.getElementById("money");
+const uiComp=document.getElementById("computers");
+const uiRebirths=document.getElementById("rebirths");
+const buyBtn=document.getElementById("buy");
+const pcType=document.getElementById("pcType");
+const upgradeBtn=document.getElementById("upgrade");
+const deleteBtn=document.getElementById("delete");
+const rebirthBtn=document.getElementById("rebirth");
+
+
+let upgrading=false, deleting=false;
+
+
+function updateUI(){
+  uiMoney.textContent=Math.floor(money);
+  uiComp.textContent=inventory.basic+inventory.gaming+inventory.super;
+  uiRebirths.textContent=rebirths;
+  buyBtn.textContent=`Köp ${pcType.value.toUpperCase()} (${machineCosts[pcType.value]})`;
+  rebirthBtn.disabled=money<5_000_000;
+}
+pcType.onchange=updateUI;
+
+
+/* ===== DRAW ===== */
+function drawPC(x,y,t,s,b){
+  ctx.shadowColor=s; ctx.shadowBlur=b;
+  ctx.drawImage(pcImage,x,y+Math.sin(t)*4,40+b/4,40+b/4);
+  ctx.shadowBlur=0;
+}
+
+
+/* ===== MACHINE ===== */
+class Machine{
+  constructor(x,y,type){
+    this.x=x; this.y=y; this.type=type;
+    this.timer=0; this.level=1;
+    this.upgradeCost=baseUpgradeCosts[type];
+  }
+  speed(){return baseSpeed[this.type]/this.level}
+  update(dt){
+    this.timer+=dt;
+    if(this.timer>=this.speed()){
+      this.timer=0;
+      inventory[this.type]+=productionAmount[this.type];
+      updateUI();
+    }
+  }
+  draw(t){
+    ctx.fillStyle="#1f3cff";
+    ctx.fillRect(this.x,this.y,70,70);
+    if(this.type==="basic") drawPC(this.x+15,this.y+20,t*3,"#3a8cff",0);
+    if(this.type==="gaming") drawPC(this.x+15,this.y+18,t*4,"red",12);
+    if(this.type==="super") drawPC(this.x+12,this.y+16,t*2,"gold",20);
+    ctx.fillStyle="#fff"; ctx.font="12px Arial"; ctx.textAlign="center";
+    ctx.fillText((this.speed()-this.timer).toFixed(1)+"s",this.x+35,this.y+92);
+    ctx.fillText("Lv "+this.level,this.x+35,this.y-10);
+  }
+}
+
+
+/* ===== BUTTONS ===== */
+buy.onclick=()=>{
+  const t=pcType.value;
+  if(money>=machineCosts[t]){
+    money-=machineCosts[t];
+    machines.push(new Machine(
+      40+(machines.length%10)*80,
+      130+Math.floor(machines.length/10)*100,t
+    ));
+    machineCosts[t]*=2;
+    updateUI(); saveGame();
+  }
+};
+
+
+sellAll.onclick=()=>{
+  for(let t in inventory){ money+=inventory[t]*sellPrices[t]; inventory[t]=0; }
+  updateUI(); saveGame();
+};
+
+
+upgradeBtn.onclick=()=>{
+  upgrading=!upgrading; deleting=false;
+  upgradeBtn.style.background=upgrading?"#ff7d4c":"#4c7dff";
+  deleteBtn.style.background="#4c7dff";
+};
+
+
+deleteBtn.onclick=()=>{
+  deleting=!deleting; upgrading=false;
+  deleteBtn.style.background=deleting?"#ff4c4c":"#4c7dff";
+  upgradeBtn.style.background="#4c7dff";
+};
+
+
+canvas.onclick=e=>{
+  const r=canvas.getBoundingClientRect();
+  const x=e.clientX-r.left, y=e.clientY-r.top;
+
+
+  if(deleting){
+    for(let i=machines.length-1;i>=0;i--){
+      const m=machines[i];
+      if(x>m.x&&x<m.x+70&&y>m.y&&y<m.y+70){
+        machines.splice(i,1);
+        deleting=false;
+        deleteBtn.style.background="#4c7dff";
+        saveGame(); return;
+      }
+    }
+  }
+
+
+  if(!upgrading) return;
+  for(let m of machines){
+    if(x>m.x&&x<m.x+70&&y>m.y&&y<m.y+70&&money>=m.upgradeCost){
+      money-=m.upgradeCost;
+      m.level++; m.upgradeCost*=1.5;
+      upgrading=false;
+      upgradeBtn.style.background="#4c7dff";
+      updateUI(); saveGame(); return;
+    }
+  }
+};
+
+
+rebirth.onclick=()=>{
+  if(money>=5_000_000){
+    money=50; machines=[];
+    inventory={basic:0,gaming:0,super:0};
+    machineCosts={basic:30,gaming:120,super:240};
+    rebirths++; updateUI(); saveGame();
+  }
+};
+
+
+/* ===== LOOP ===== */
+let last=0;
+function loop(ts){
+  if(!last) last=ts;
+  const dt=(ts-last)/1000; last=ts;
+  ctx.clearRect(0,0,900,450);
+  machines.forEach(m=>{m.update(dt);m.draw(ts/1000);});
+  requestAnimationFrame(loop);
+}
+
+
+/* ===== START ===== */
+loadGame(); updateUI();
+setInterval(saveGame,2000);
+window.addEventListener("beforeunload",saveGame);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
